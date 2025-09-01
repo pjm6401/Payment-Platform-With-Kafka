@@ -1,0 +1,8 @@
+rootProject.name = 'payment'
+
+include 'common'
+include 'payment-api'
+include 'fds-consumer'
+include 'loyalty-consumer'
+include 'benefit-consumer'
+include 'verification-api'
