@@ -50,11 +50,16 @@ public class FdsService {
             saveTransaction(payment, "PENDING");
             String txId = payment.getTransactionId();
             String pendingTxKey = "fds:pending:" + txId;
-            HashOperations<String, String, String> hashOps = redisTemplate.opsForHash();
-            hashOps.put(pendingTxKey, "amount", String.valueOf(payment.getAmount()));
-            hashOps.put(pendingTxKey, "country", payment.getCountry());
-            hashOps.put(pendingTxKey, "storeName", payment.getStoreName());
-            redisTemplate.expire(pendingTxKey, 5, TimeUnit.MINUTES);
+            try {
+                // ❗️ 1. DTO 객체를 JSON 문자열로 변환합니다.
+                String paymentJson = objectMapper.writeValueAsString(payment);
+                // ❗️ 2. JSON 문자열을 String 타입으로 Redis에 저장합니다.
+                redisTemplate.opsForValue().set(pendingTxKey, paymentJson, 5, TimeUnit.MINUTES);
+            } catch (JsonProcessingException e) {
+                // 실제로는 로깅 처리가 필요합니다.
+                System.err.println("Failed to serialize Payment DTO: " + e.getMessage());
+                return;
+            }
             String verificationLink = verificationApiUrl + "/verify/" + txId;
 
             String smsMessage = String.format("[국외결제] %s에서 %d원 결제 요청. 확인 링크: %s",
@@ -89,7 +94,7 @@ public class FdsService {
 
                 try {
                     PaymentDto payment = objectMapper.readValue(paymentJson, PaymentDto.class);
-                    publishFinalizedEvent(payment, "COMPLETED");
+                    publishFinalizedEvent(payment, "APPROVED");
                     String userLocationKey = "user:" + payment.getUserId() + ":location";
                     redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
                     System.out.println("User location updated after verification for: " + payment.getUserId());
