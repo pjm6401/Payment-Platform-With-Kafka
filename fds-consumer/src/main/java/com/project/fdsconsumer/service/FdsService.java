@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.project.common.PaymentDto;
+import com.project.common.TransactionFinalizedDto;
 import com.project.fdsconsumer.domain.Store;
 import com.project.fdsconsumer.domain.Transaction;
 import com.project.fdsconsumer.domain.User;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -25,7 +27,8 @@ public class FdsService {
 
     private final StringRedisTemplate redisTemplate;
     private final TransactionRepository transactionRepository;
-    private final EntityManager entityManager; // EntityManager 주입
+    private final KafkaTemplate<String, TransactionFinalizedDto> kafkaTemplate; // ❗️ DTO 타입 변경
+    private final EntityManager entityManager;
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Value("${app.verification-api.url}")
@@ -61,6 +64,8 @@ public class FdsService {
         } else {
             redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
             saveTransaction(payment, "APPROVED");
+            //이벤트 발행
+            publishFinalizedEvent(payment, "APPROVED");
             System.out.println("Normal transaction for user: " + userId);
         }
     }
@@ -84,6 +89,7 @@ public class FdsService {
 
                 try {
                     PaymentDto payment = objectMapper.readValue(paymentJson, PaymentDto.class);
+                    publishFinalizedEvent(payment, "COMPLETED");
                     String userLocationKey = "user:" + payment.getUserId() + ":location";
                     redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
                     System.out.println("User location updated after verification for: " + payment.getUserId());
@@ -92,7 +98,6 @@ public class FdsService {
                 }
 
             } else {
-                // 2-3. 거절된 경우, DB 상태를 'DENIED_BY_USER'로 업데이트
                 transaction.updateStatusDeniedByUser();
                 System.out.println("Transaction status updated to DENIED_BY_USER for txId: " + txId);
             }
@@ -115,5 +120,19 @@ public class FdsService {
                 .transactionAt(payment.getTransactionAt())
                 .build();
         transactionRepository.save(transaction);
+    }
+    private void publishFinalizedEvent(PaymentDto payment, String status) {
+        TransactionFinalizedDto finalizedDto = TransactionFinalizedDto.builder()
+                .transactionId(payment.getTransactionId())
+                .userId(payment.getUserId())
+                .cardId(payment.getCardId())
+                .amount(payment.getAmount())
+                .storeId(payment.getStoreId())
+                .storeName(payment.getStoreName())
+                .country(payment.getCountry())
+                .transactionAt(payment.getTransactionAt())
+                .status(status)
+                .build();
+        kafkaTemplate.send("transaction-finalized", finalizedDto);
     }
 }
