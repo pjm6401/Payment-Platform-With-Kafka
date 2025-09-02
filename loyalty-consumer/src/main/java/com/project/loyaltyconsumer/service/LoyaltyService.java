@@ -1,6 +1,7 @@
 package com.project.loyaltyconsumer.service;
 
 import com.project.common.PaymentDto;
+import com.project.common.TransactionFinalizedDto;
 import com.project.loyaltyconsumer.domain.CustomerVisit;
 import com.project.loyaltyconsumer.domain.Store;
 import com.project.loyaltyconsumer.domain.Transaction;
@@ -28,7 +29,7 @@ public class LoyaltyService {
     private final TransactionRepository transactionRepository;
 
     @Transactional
-    public void analyzeCustomerVisit(PaymentDto payment) {
+    public void analyzeCustomerVisit(TransactionFinalizedDto payment) {
         String userId = payment.getUserId();
         String storeId = payment.getStoreId();
         String visitCountKey = "loyalty:customer:" + userId + ":store:" + storeId + ":visit_count";
@@ -53,7 +54,7 @@ public class LoyaltyService {
     }
 
     @Async
-    public void saveVisitAsync(PaymentDto payment) {
+    public void saveVisitAsync(TransactionFinalizedDto payment) {
         User user = userRepository.findById(payment.getUserId())
                 .orElseThrow(() -> new EntityNotFoundException("User not found: " + payment.getUserId()));
         Store store = storeRepository.findById(payment.getStoreId())
