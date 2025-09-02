@@ -25,7 +25,7 @@ public class PaymentController {
         paymentDto.setTransactionId(UUID.randomUUID().toString());
         paymentDto.setTransactionAt(LocalDateTime.now());
         kafkaTemplate.send("payment-stream", paymentDto);
-        return new ResponseDto(paymentDto.getTransactionId(), "APPROVED");
+        return new ResponseDto(paymentDto.getTransactionId(), "PENDING");
     }
 
     @PostMapping("/api/location/{userId}")
