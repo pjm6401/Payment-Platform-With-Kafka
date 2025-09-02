@@ -36,9 +36,9 @@ public class LoyaltyService {
         Long currentVisitCount = redisTemplate.opsForValue().increment(visitCountKey);
 
         if (currentVisitCount != null && currentVisitCount == 1) {
-            long pastVisitCount = customerVisitRepository.countByUser_UserIdAndStore_StoreId(userId, storeId);
-            if (pastVisitCount > 0) {
-                currentVisitCount = pastVisitCount + 1;
+            long pastApprovedVisits = customerVisitRepository.countApprovedVisits(userId, storeId);
+            if (pastApprovedVisits > 0) {
+                currentVisitCount = pastApprovedVisits + 1;
                 redisTemplate.opsForValue().set(visitCountKey, String.valueOf(currentVisitCount));
             }
         }
@@ -46,8 +46,9 @@ public class LoyaltyService {
         redisTemplate.expire(visitCountKey, 90, TimeUnit.DAYS);
         saveVisitAsync(payment);
 
-        if (currentVisitCount != null && currentVisitCount == 5) {
-            System.out.println(String.format("[VIP EVENT] 고객 %s님이 %s 매장에 5번째 방문!", userId, payment.getStoreName()));
+        if (currentVisitCount != null && currentVisitCount >= 5) {
+            System.out.println(String.format("[VIP GUEST] 고객 %s님이 %s 매장에 %d번째 방문하셨습니다! 특별 혜택 대상입니다.",
+                    userId, payment.getStoreName(), currentVisitCount));
         }
     }
 
