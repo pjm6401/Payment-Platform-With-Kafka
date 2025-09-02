@@ -12,7 +12,7 @@ public class LoyaltyConsumer {
 
     private final LoyaltyService loyaltyService;
 
-    @KafkaListener(topics = "payment-stream", groupId = "loyalty-group", containerFactory = "paymentDtoContainerFactory")
+    @KafkaListener(topics = "transaction-finalized", groupId = "loyalty-group", containerFactory = "finalizedDtoContainerFactory")
     public void consumePayment(PaymentDto payment) {
         loyaltyService.analyzeCustomerVisit(payment);
     }
