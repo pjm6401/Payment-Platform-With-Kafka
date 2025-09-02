@@ -7,4 +7,5 @@ import java.util.Optional;
 
 public interface TransactionRepository extends JpaRepository<Transaction, String> {
     Optional<Transaction> findTopByUser_UserIdOrderByTransactionAtDesc(String userId);
+    Optional<Transaction> findByTransactionIdAndStatus(String transactionId, String status);
 }

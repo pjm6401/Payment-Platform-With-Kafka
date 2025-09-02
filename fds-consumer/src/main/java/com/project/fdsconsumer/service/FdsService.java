@@ -1,5 +1,8 @@
 package com.project.fdsconsumer.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.project.common.PaymentDto;
 import com.project.fdsconsumer.domain.Store;
 import com.project.fdsconsumer.domain.Transaction;
@@ -23,6 +26,7 @@ public class FdsService {
     private final StringRedisTemplate redisTemplate;
     private final TransactionRepository transactionRepository;
     private final EntityManager entityManager; // EntityManager 주입
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Value("${app.verification-api.url}")
     private String verificationApiUrl;
@@ -53,6 +57,7 @@ public class FdsService {
             String smsMessage = String.format("[국외결제] %s에서 %d원 결제 요청. 확인 링크: %s",
                     payment.getCountry(), payment.getAmount(), verificationLink);
             System.out.println("Sent SMS: " + smsMessage);
+            saveTransaction(payment, "PENDING");
         } else {
             redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
             saveTransaction(payment, "APPROVED");
@@ -63,18 +68,35 @@ public class FdsService {
     @Transactional
     public void finalizeTransaction(String txId, String decision) {
         String pendingTxKey = "fds:pending:" + txId;
-        if (Boolean.FALSE.equals(redisTemplate.hasKey(pendingTxKey))) return;
+        // 1. Redis에서 보류 중인 거래의 JSON 정보를 가져옵니다.
+        String paymentJson = redisTemplate.opsForValue().get(pendingTxKey);
 
-        // 3. 사용자 결정 후, DB의 거래 상태를 최종 UPDATE
-        transactionRepository.findById(txId).ifPresent(transaction -> {
-            String finalStatus = "APPROVED".equals(decision) ? "APPROVED" : "DENIED_BY_USER";
-            if(finalStatus.equals("APPROVED")) {
+        // 정보가 없으면 (이미 처리되었거나 만료됨) 즉시 종료
+        if (paymentJson == null) {
+            System.out.println("Transaction already processed or expired: " + txId);
+            return;
+        }
+
+        transactionRepository.findByTransactionIdAndStatus(txId,"PENDING").ifPresent(transaction -> {
+            if ("APPROVED".equals(decision)) {
                 transaction.updateStatusApproved();
-            }else{
+                System.out.println("Transaction status updated to COMPLETED for txId: " + txId);
+
+                try {
+                    PaymentDto payment = objectMapper.readValue(paymentJson, PaymentDto.class);
+                    String userLocationKey = "user:" + payment.getUserId() + ":location";
+                    redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
+                    System.out.println("User location updated after verification for: " + payment.getUserId());
+                } catch (JsonProcessingException e) {
+                    System.err.println("Failed to parse payment DTO from Redis: " + e.getMessage());
+                }
+
+            } else {
+                // 2-3. 거절된 경우, DB 상태를 'DENIED_BY_USER'로 업데이트
                 transaction.updateStatusDeniedByUser();
+                System.out.println("Transaction status updated to DENIED_BY_USER for txId: " + txId);
             }
         });
-
         redisTemplate.delete(pendingTxKey);
     }
 
