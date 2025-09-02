@@ -1,12 +1,11 @@
 package com.project.fdsconsumer.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.project.common.PaymentDto;
 import com.project.fdsconsumer.domain.Transaction;
 import com.project.fdsconsumer.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -21,8 +20,9 @@ public class FdsService {
     private final StringRedisTemplate redisTemplate;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final TransactionRepository transactionRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
+    @Value("${app.verification-api.url}")
+    private String verificationApiUrl;
     public void processTransaction(PaymentDto payment) {
         String userId = payment.getUserId();
         String userLocationKey = "user:" + userId + ":location";
@@ -39,14 +39,13 @@ public class FdsService {
         if (lastKnownCountry != null && !lastKnownCountry.equals(payment.getCountry())) {
             String txId = payment.getTransactionId();
             String pendingTxKey = "fds:pending:" + txId;
-            try {
-                String paymentJson = objectMapper.writeValueAsString(payment);
-                redisTemplate.opsForValue().set(pendingTxKey, paymentJson, 5, TimeUnit.MINUTES);
-            } catch (JsonProcessingException e) {
-                return;
-            }
+            HashOperations<String, String, String> hashOps = redisTemplate.opsForHash();
+            hashOps.put(pendingTxKey, "amount", String.valueOf(payment.getAmount()));
+            hashOps.put(pendingTxKey, "country", payment.getCountry());
+            hashOps.put(pendingTxKey, "storeName", payment.getStoreName());
+            redisTemplate.expire(pendingTxKey, 5, TimeUnit.MINUTES);
+            String verificationLink = verificationApiUrl + "/verify/" + txId;
 
-            String verificationLink = "http://[EC2_PUBLIC_IP]:8083/verify/" + txId;
             String smsMessage = String.format("[국외결제] %s에서 %d원 결제 요청. 확인 링크: %s",
                     payment.getCountry(), payment.getAmount(), verificationLink);
             System.out.println("Sent SMS: " + smsMessage);
