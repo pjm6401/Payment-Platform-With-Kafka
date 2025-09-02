@@ -1,15 +1,18 @@
 package com.project.fdsconsumer.service;
 
 import com.project.common.PaymentDto;
+import com.project.fdsconsumer.domain.Store;
 import com.project.fdsconsumer.domain.Transaction;
+import com.project.fdsconsumer.domain.User;
 import com.project.fdsconsumer.repository.TransactionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -18,8 +21,8 @@ import java.util.concurrent.TimeUnit;
 public class FdsService {
 
     private final StringRedisTemplate redisTemplate;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final TransactionRepository transactionRepository;
+    private final EntityManager entityManager; // EntityManager 주입
 
     @Value("${app.verification-api.url}")
     private String verificationApiUrl;
@@ -37,6 +40,7 @@ public class FdsService {
         }
 
         if (lastKnownCountry != null && !lastKnownCountry.equals(payment.getCountry())) {
+            saveTransaction(payment, "PENDING");
             String txId = payment.getTransactionId();
             String pendingTxKey = "fds:pending:" + txId;
             HashOperations<String, String, String> hashOps = redisTemplate.opsForHash();
@@ -51,20 +55,43 @@ public class FdsService {
             System.out.println("Sent SMS: " + smsMessage);
         } else {
             redisTemplate.opsForValue().set(userLocationKey, payment.getCountry(), 24, TimeUnit.HOURS);
+            saveTransaction(payment, "APPROVED");
             System.out.println("Normal transaction for user: " + userId);
         }
     }
 
+    @Transactional
     public void finalizeTransaction(String txId, String decision) {
         String pendingTxKey = "fds:pending:" + txId;
-        String paymentJson = redisTemplate.opsForValue().get(pendingTxKey);
-        if (paymentJson == null) return;
+        if (Boolean.FALSE.equals(redisTemplate.hasKey(pendingTxKey))) return;
 
-        if ("APPROVED".equals(decision)) {
-            System.out.println("Transaction APPROVED by user: " + txId);
-        } else {
-            System.out.println("Transaction DENIED by user: " + txId);
-        }
+        // 3. 사용자 결정 후, DB의 거래 상태를 최종 UPDATE
+        transactionRepository.findById(txId).ifPresent(transaction -> {
+            String finalStatus = "APPROVED".equals(decision) ? "APPROVED" : "DENIED_BY_USER";
+            if(finalStatus.equals("APPROVED")) {
+                transaction.updateStatusApproved();
+            }else{
+                transaction.updateStatusDeniedByUser();
+            }
+        });
+
         redisTemplate.delete(pendingTxKey);
+    }
+
+    private void saveTransaction(PaymentDto payment, String status) {
+        // ID를 사용하여 실제 엔티티를 조회하지 않고, 참조(프록시)만 가져옵니다.
+        User userProxy = entityManager.getReference(User.class, payment.getUserId());
+        Store storeProxy = entityManager.getReference(Store.class, payment.getStoreId());
+
+        Transaction transaction = Transaction.builder()
+                .transactionId(payment.getTransactionId())
+                .user(userProxy) // User 객체 참조를 전달
+                .store(storeProxy) // Store 객체 참조를 전달
+                .amount(BigDecimal.valueOf(payment.getAmount()))
+                .country(payment.getCountry())
+                .status(status)
+                .transactionAt(payment.getTransactionAt())
+                .build();
+        transactionRepository.save(transaction);
     }
 }
