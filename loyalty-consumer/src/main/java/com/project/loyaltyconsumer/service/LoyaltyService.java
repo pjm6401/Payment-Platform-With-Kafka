@@ -1,6 +1,7 @@
 package com.project.loyaltyconsumer.service;
 
 import com.project.common.PaymentDto;
+import com.project.common.TransactionFinalizedDto;
 import com.project.loyaltyconsumer.domain.CustomerVisit;
 import com.project.loyaltyconsumer.domain.Store;
 import com.project.loyaltyconsumer.domain.Transaction;
@@ -28,7 +29,7 @@ public class LoyaltyService {
     private final TransactionRepository transactionRepository;
 
     @Transactional
-    public void analyzeCustomerVisit(PaymentDto payment) {
+    public void analyzeCustomerVisit(TransactionFinalizedDto payment) {
         String userId = payment.getUserId();
         String storeId = payment.getStoreId();
         String visitCountKey = "loyalty:customer:" + userId + ":store:" + storeId + ":visit_count";
@@ -36,9 +37,9 @@ public class LoyaltyService {
         Long currentVisitCount = redisTemplate.opsForValue().increment(visitCountKey);
 
         if (currentVisitCount != null && currentVisitCount == 1) {
-            long pastVisitCount = customerVisitRepository.countByUser_UserIdAndStore_StoreId(userId, storeId);
-            if (pastVisitCount > 0) {
-                currentVisitCount = pastVisitCount + 1;
+            long pastApprovedVisits = customerVisitRepository.countApprovedVisits(userId, storeId);
+            if (pastApprovedVisits > 0) {
+                currentVisitCount = pastApprovedVisits + 1;
                 redisTemplate.opsForValue().set(visitCountKey, String.valueOf(currentVisitCount));
             }
         }
@@ -46,13 +47,14 @@ public class LoyaltyService {
         redisTemplate.expire(visitCountKey, 90, TimeUnit.DAYS);
         saveVisitAsync(payment);
 
-        if (currentVisitCount != null && currentVisitCount == 5) {
-            System.out.println(String.format("[VIP EVENT] 고객 %s님이 %s 매장에 5번째 방문!", userId, payment.getStoreName()));
+        if (currentVisitCount != null && currentVisitCount >= 5) {
+            System.out.println(String.format("[VIP GUEST] 고객 %s님이 %s 매장에 %d번째 방문하셨습니다! 특별 혜택 대상입니다.",
+                    userId, payment.getStoreName(), currentVisitCount));
         }
     }
 
     @Async
-    public void saveVisitAsync(PaymentDto payment) {
+    public void saveVisitAsync(TransactionFinalizedDto payment) {
         User user = userRepository.findById(payment.getUserId())
                 .orElseThrow(() -> new EntityNotFoundException("User not found: " + payment.getUserId()));
         Store store = storeRepository.findById(payment.getStoreId())

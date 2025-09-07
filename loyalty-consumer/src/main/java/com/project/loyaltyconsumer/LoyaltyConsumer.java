@@ -1,6 +1,7 @@
 package com.project.loyaltyconsumer;
 
 import com.project.common.PaymentDto;
+import com.project.common.TransactionFinalizedDto;
 import com.project.loyaltyconsumer.service.LoyaltyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -12,8 +13,8 @@ public class LoyaltyConsumer {
 
     private final LoyaltyService loyaltyService;
 
-    @KafkaListener(topics = "payment-stream", groupId = "loyalty-group", containerFactory = "paymentDtoContainerFactory")
-    public void consumePayment(PaymentDto payment) {
-        loyaltyService.analyzeCustomerVisit(payment);
+    @KafkaListener(topics = "transaction-finalized", groupId = "loyalty-group", containerFactory = "finalizedDtoContainerFactory")
+    public void consumeFinalizedTransaction(TransactionFinalizedDto finalizedDto) {
+        loyaltyService.analyzeCustomerVisit(finalizedDto);
     }
 }

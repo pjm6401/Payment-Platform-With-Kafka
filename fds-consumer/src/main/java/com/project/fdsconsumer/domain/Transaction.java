@@ -1,15 +1,16 @@
 package com.project.fdsconsumer.domain;
 
 import jakarta.persistence.*;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+import lombok.*;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "transactions")
 @Getter
+@AllArgsConstructor
+@Builder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Transaction {
 
@@ -36,4 +37,11 @@ public class Transaction {
 
     @Column(name = "transaction_at", nullable = false)
     private LocalDateTime transactionAt;
+
+    public void updateStatusApproved() {
+        this.status = "APPROVED";
+    }
+    public void updateStatusDeniedByUser() {
+        this.status = "DENIED_BY_USER";
+    }
 }
