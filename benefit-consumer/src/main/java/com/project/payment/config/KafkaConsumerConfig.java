@@ -1,6 +1,6 @@
 package com.project.payment.config;
 
-import com.project.common.PaymentDto;
+import com.project.common.TransactionFinalizedDto;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,19 +20,21 @@ public class KafkaConsumerConfig {
     private String bootstrapServers;
 
     @Bean
-    public ConsumerFactory<String, PaymentDto> paymentDtoConsumerFactory() {
+    public ConsumerFactory<String, TransactionFinalizedDto> finalizedDtoConsumerFactory() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "benefit-guide-group"); // 고유 ID
-        JsonDeserializer<PaymentDto> deserializer = new JsonDeserializer<>(PaymentDto.class, false);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "benefit-guide-group");
+
+        JsonDeserializer<TransactionFinalizedDto> deserializer = new JsonDeserializer<>(TransactionFinalizedDto.class, false);
         deserializer.addTrustedPackages("*");
+
         return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), deserializer);
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, PaymentDto> paymentDtoContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, PaymentDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(paymentDtoConsumerFactory());
+    public ConcurrentKafkaListenerContainerFactory<String, TransactionFinalizedDto> finalizedDtoContainerFactory() { // ❗️ Bean 이름 변경
+        ConcurrentKafkaListenerContainerFactory<String, TransactionFinalizedDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(finalizedDtoConsumerFactory());
         return factory;
     }
 }
